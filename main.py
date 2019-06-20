@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
 # @Author Michael Pavlov
 #
-# version 1.00 2019-06-05
+# version 1.00 2019-04-05
 # первая версия
 # version 1.10 2019-06-18
 # первая рабочая версия
 # version 1.20 2019-06-19
 # +история поиска, +фикс количество файлов
-# version 1.30 2019-06-20
+# version 1.31 2019-06-20
 # управление фильтрами и path
 
 # TODO
+# когда нет знака +\-, то считать +
+# репроцессинг
 # "/subscribe", "/lucky"
 # ограничения на поиск
 
@@ -22,10 +24,10 @@ import logging
 import time
 import sys
 import math
-# import config
+#import config
 from logging.handlers import RotatingFileHandler
 
-VERSION = "1.3"
+VERSION = "1.31"
 
 class PlabBot:
 
@@ -34,7 +36,7 @@ class PlabBot:
         self.env = env
 
         self.logger = logging.getLogger("Plab_Bot")
-        self.logger.setLevel(logging.DEBUG)
+        self.logger.setLevel(logging.INFO)
 
         if self.env == 'heroku':
             handler = logging.StreamHandler(sys.stdout)
@@ -44,12 +46,13 @@ class PlabBot:
             self.logger.addHandler(handler)
 
             self.TG_BOT_TOKEN = os.environ['TOKEN']
-            self.HEROKU_NAME = os.environ['HEROKU_NAME'] #'test-hw-bot'
+            self.HEROKU_NAME = os.environ['HEROKU_NAME'] #'pornolab-bot'
             self.DB_USER = os.environ['DB_USER']
             self.DB_PASSWORD = os.environ['DB_PASSWORD']
             self.DB_HOST = os.environ['DB_HOST']
             self.DB_PORT = os.environ['DB_PORT']
             self.DB_DATABASE = "bots"
+            self.TMP_PATH = ""
 
             self.GLOBAL_RECONNECT_COUNT = int(os.environ['GLOBAL_RECONNECT_COUNT'])
 
@@ -64,7 +67,6 @@ class PlabBot:
                                      methods=['POST'])
             self.server.add_url_rule("/", view_func=self.webhook)
 
-
         elif self.env == 'local':
             handler = RotatingFileHandler("plab_bot.log", mode='a', encoding='utf-8', backupCount=5,
                                      maxBytes=16 * 1024 * 1024)
@@ -78,6 +80,7 @@ class PlabBot:
             self.DB_HOST = config.DB_HOST
             self.DB_PORT = config.DB_PORT
             self.DB_DATABASE = config.DB_DATABASE
+            self.TMP_PATH = "C:\\log\\pbot_searches\\"
 
             self.GLOBAL_RECONNECT_COUNT = int(config.GLOBAL_RECONNECT_COUNT)
 
@@ -92,7 +95,7 @@ class PlabBot:
         self.GLOBAL_RECONNECT_INTERVAL = 5
         self.RECONNECT_ERRORS = []
         self.ADMIN_ID = '211558'
-        self.MAIN_HELP_LINK = "https://telegra.ph/usage-05-1"
+        self.MAIN_HELP_LINK = "https://telegra.ph/usage-05-10"
 
         self.markup_commands = ["/help", "/search", "/usage", "/settings"]
 
@@ -372,7 +375,7 @@ class PlabBot:
             search_data = self.create_search_request(message.text, str(message.chat.id),user_max_limit=user_max_limit,fixed_filters=user_filters)
             if search_data["isvalid"]:
                 # выполняем запрос
-                urls = self.db_query(search_data["search_request"],(), "Searching for urls")
+                urls = self.db_query(search_data["search_request"].replace("%s","%\\s"),(), "Searching for urls")
                 self.logger.debug("Command Search() Found " + str(len(urls)) + " urls")
             else:
                 self.logger.warning("Command Search() Error: " + str(search_data["error_message"]))
@@ -411,6 +414,14 @@ class PlabBot:
                         pass
             except Exception as e:
                 self.logger.warning("Command Search() Could not save search for user:" + str(message.chat.id) + "; E:" + str(e))
+                pass
+
+            # удяляем файлы
+            try:
+                for file_name in file_names:
+                    os.remove(file_name)
+            except Exception as e:
+                self.logger.warning("Command Search() Could not Delete files:" + str(e))
                 pass
 
             return True
@@ -703,8 +714,7 @@ class PlabBot:
             if data.get("save") is not None and str(data.get("save")).lower().strip().startswith("true"):
                 return_dict["save"] = True
 
-            #print(search_request)
-            self.bot.send_message(self.ADMIN_ID, str(search_request))
+            print(search_request)
             return_dict["isvalid"] = True
         except Exception as e:
             self.logger.warning("Create_search_request() Error in create search request:")
@@ -720,10 +730,10 @@ class PlabBot:
             last_file_id = 1
             current_file_id = 1
             url_index = 1
-            file_names.append("plab_search_" + str(search_id) + "_part_" + str(current_file_id) + "_of_" + str(files_count) + ".bat")
+            file_names.append(self.TMP_PATH + "plab_search_" + str(search_id) + "_part_" + str(current_file_id) + "_of_" + str(files_count) + ".bat")
             for url in urls:
                 out_filename = "plab_search_" + str(search_id) + "_part_" + str(current_file_id) + "_of_" + str(files_count) + ".bat"
-                out_file = open(out_filename, mode='a')
+                out_file = open(self.TMP_PATH + out_filename, mode='a')
                 out_file.write(browser_path + " " + str(url[0]) + "\n")
                 if current_file_id != last_file_id:
                     file_names.append(out_file.name)
@@ -740,43 +750,3 @@ class PlabBot:
 if __name__ == '__main__':
     pBot = PlabBot()
     pBot.run()
-
-
-    # message = pBot.bot.send_message('211558',"Test2")
-    # print(message)
-    # settings_command = ["/filters", "/chrome_path", "/back"]
-    # self.bot.send_message(message.chat.id, "Select:", reply_markup=self.markup_keyboard(settings_command))
-
-    # pBot.bot.edit_message_text("Tap00:", '211558', 62, reply_markup=pBot.markup_keyboard(settings_command))
-    # pBot.bot.edit_message_reply_markup('211558', 61, reply_markup=pBot.inline_keyboard(settings_command))
-
-    # out_file = open(config.TMP_PATH + "test.tet", mode='a')
-    # print(out_file.name)
-
-    # sssearch = "tags: +teen\n" + \
-    #          "subforum: -pregnant\n" + \
-    #             "limit: 100\n"
-    #
-    # ssfixed_filters = "tags:-big,-milf,-mature|subforum:-virtual reality,-picture pack,-metmodels|forum:-gay forum"
-
-    # print("+2019, +2018, -2001".split(","))
-
-    # data = pBot.create_search_request(sssearch,fixed_filters=ssfixed_filters)
-    # print(data["search_request"])
-    #
-    # user_data = pBot.db_query(data["search_request"], (), "Check User exist")
-    # print(user_data)
-
-    # urls = ["url1","url2","url3","url4","url5","url6","url7"]
-    # pBot.create_out_files(urls,search_id="id",browser_path="C:\\", num_url_per_file=10)
-    # user_data = pBot.db_query("select fixed_filters,max_limit,browser_path,last_search_id from plab_bot_users where user_id=%s", ("211558",), "Check User exist")
-    # print(user_data)
-    # user_filters = user_data[0][0]
-    # user_max_limit = int(user_data[0][1])
-    # user_browser_path = user_data[0][2]
-    # last_search_id = int(user_data[0][3]) + 1
-    # print(user_filters)
-    # print(user_max_limit)
-    # print(user_browser_path)
-    # print(last_search_id)
-
