@@ -7,12 +7,10 @@
 # первая рабочая версия
 # version 1.20 2019-06-19
 # +история поиска, +фикс количество файлов
-# version 1.31 2019-06-20
+# version 1.32 2019-06-21
 # управление фильтрами и path
 
 # TODO
-# когда нет знака +\-, то считать +
-# репроцессинг
 # "/subscribe", "/lucky"
 # ограничения на поиск
 
@@ -24,10 +22,10 @@ import logging
 import time
 import sys
 import math
-#import config
+import config
 from logging.handlers import RotatingFileHandler
 
-VERSION = "1.31"
+VERSION = "1.32"
 
 class PlabBot:
 
@@ -326,35 +324,6 @@ class PlabBot:
         inlinekeyboard.add(*[telebot.types.InlineKeyboardButton(text=name, callback_data=name) for name in list])
         return inlinekeyboard
 
-    # def command_add(self, message):
-    #     self.logger.info("Receive Add command from chat ID:" + str(message.chat.id))
-    #
-    #     try:
-    #         # проверяем доступное количество URL
-    #         urls_count = \
-    #         self.db_query("select count(*) from salemon_engine_urls where user_id = %s", (message.chat.id,), "Count urls")[
-    #             0][0]
-    #         max_urls_for_user = \
-    #         self.db_query("select max_urls from salemon_bot_users where user_id = %s", (message.chat.id,),
-    #                       "Get User Max Urls")[0][0]
-    #         if urls_count >= max_urls_for_user:
-    #             self.bot.send_message(message.chat.id, "Url limit exceeded.\nDelete other URLs or /upgrade account")
-    #             return
-    #
-    #         # если есть еще место - добавляем
-    #         if self.db_execute("update salemon_bot_users set state = %s where user_id = %s", ("wait_url", message.chat.id),
-    #                            "Update State"):
-    #             self.bot.send_message(message.chat.id, "Please paste url\nExample: http://www.domain.com/search?q=test")
-    #         else:
-    #             self.bot.send_message(message.chat.id, "ops...")
-    #     except Exception as e:
-    #         self.logger.info("Cant execute Add command from chat ID:" + str(message.chat.id))
-    #         try:
-    #             self.bot.send_message(message.chat.id, "ops... please tap /start or contact support")
-    #         except:
-    #             pass
-    #     return
-
     def command_search(self, message):
         try:
             self.logger.info("Receive Search command from user id:" + str(message.chat.id))
@@ -444,21 +413,10 @@ class PlabBot:
             self.logger.critical("Cant execute Upgrade command. " + str(e))
         return
 
-    # def command_settings(self, message):
-    #     try:
-    #         self.logger.info("Receive Settings command from chat ID:" + str(message.chat.id))
-    #         settings_command = ["/filters", "/chrome_path", "/back"]
-    #         print(message)
-    #         # self.bot.edit_message_text("Select:", message.chat.id,message.message_id,reply_markup=self.markup_keyboard(settings_command))
-    #         self.bot.send_message(message.chat.id, "Select:", reply_markup=self.markup_keyboard(settings_command))
-    #     except Exception as e:
-    #         self.logger.critical("Cant execute Upgrade command. " + str(e))
-    #     return
-
     def handle_messages(self, messages):
         for message in messages:
             try:
-                # self.bot.send_message(self.ADMIN_ID, "New message from " + str(message.chat.id) + "\n" + message.text)
+                self.bot.send_message(self.ADMIN_ID, "New message from " + str(message.chat.id) + "\n" + message.text)
                 if message.reply_to_message is not None:
                     # TODO Process reply message
                     return
@@ -485,8 +443,14 @@ class PlabBot:
                 if message.text.startswith("/settings"):
                     settings_command = ["Edit Filters", "Edit Path"]
                     user_data = self.db_query("select fixed_filters,browser_path from plab_bot_users where user_id=%s", (message.chat.id,),"Get User Data")
-                    user_filters = user_data[0][0]
-                    user_browser_path = user_data[0][1]
+                    if user_data[0][0] is not None:
+                        user_filters = user_data[0][0]
+                    else:
+                        user_filters = ""
+                    if user_data[0][1] is not None:
+                        user_browser_path = user_data[0][1]
+                    else:
+                        user_browser_path = ""
                     self.bot.send_message(message.chat.id,reply_markup=pBot.inline_keyboard(settings_command), parse_mode='Markdown', text="*Filters*:\n" + \
                                                                                                                     user_filters.replace("|","\n") + \
                                                                                                                     "\n\n" + \
