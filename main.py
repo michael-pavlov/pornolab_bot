@@ -7,7 +7,7 @@
 # первая рабочая версия
 # version 1.20 2019-06-19
 # +история поиска, +фикс количество файлов
-# version 1.32 2019-06-21
+# version 1.33 2019-06-21
 # управление фильтрами и path
 
 # TODO
@@ -25,7 +25,7 @@ import math
 #import config
 from logging.handlers import RotatingFileHandler
 
-VERSION = "1.32"
+VERSION = "1.33"
 
 class PlabBot:
 
@@ -564,7 +564,7 @@ class PlabBot:
         # проверяем и добавляем персональные фильтры, если есть
         try:
             # разбиваем текст на словарь
-            for line in fixed_filters.replace("|","\n").split("\n"):
+            for line in fixed_filters.lower().replace("|","\n").split("\n"):
                 key = line[0:line.find(":")].strip()
                 value = line[line.find(":") + 1:].strip()
                 if len(key) > 0:
@@ -581,7 +581,7 @@ class PlabBot:
         # парсим всю кучу
         try:
             # разбиваем текст на словарь
-            for line in search_.split("\n"):
+            for line in search_.lower().split("\n"):
                 key = line[0:line.find(":")].strip()
                 value = line[line.find(":") + 1:].strip()
                 if len(key) > 0: data[key] = value
