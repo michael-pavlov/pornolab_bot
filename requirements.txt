@@ -1,0 +1,3 @@
+pytelegrambotapi==3.6.6
+flask
+mysql-connector
