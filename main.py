@@ -22,7 +22,7 @@ import logging
 import time
 import sys
 import math
-import config
+# import config
 from logging.handlers import RotatingFileHandler
 
 VERSION = "1.3"
@@ -719,10 +719,10 @@ class PlabBot:
             last_file_id = 1
             current_file_id = 1
             url_index = 1
-            file_names.append(config.TMP_PATH + "plab_search_" + str(search_id) + "_part_" + str(current_file_id) + "_of_" + str(files_count) + ".bat")
+            file_names.append("plab_search_" + str(search_id) + "_part_" + str(current_file_id) + "_of_" + str(files_count) + ".bat")
             for url in urls:
                 out_filename = "plab_search_" + str(search_id) + "_part_" + str(current_file_id) + "_of_" + str(files_count) + ".bat"
-                out_file = open(config.TMP_PATH + out_filename, mode='a')
+                out_file = open(out_filename, mode='a')
                 out_file.write(browser_path + " " + str(url[0]) + "\n")
                 if current_file_id != last_file_id:
                     file_names.append(out_file.name)
