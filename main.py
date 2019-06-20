@@ -34,7 +34,7 @@ class PlabBot:
         self.env = env
 
         self.logger = logging.getLogger("Plab_Bot")
-        self.logger.setLevel(logging.INFO)
+        self.logger.setLevel(logging.DEBUG)
 
         if self.env == 'heroku':
             handler = logging.StreamHandler(sys.stdout)
