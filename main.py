@@ -22,7 +22,7 @@ import logging
 import time
 import sys
 import math
-import config
+#import config
 from logging.handlers import RotatingFileHandler
 
 VERSION = "1.32"
