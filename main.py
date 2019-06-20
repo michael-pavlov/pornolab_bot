@@ -92,7 +92,7 @@ class PlabBot:
         self.GLOBAL_RECONNECT_INTERVAL = 5
         self.RECONNECT_ERRORS = []
         self.ADMIN_ID = '211558'
-        self.MAIN_HELP_LINK = "https://telegra.ph/usage-05-10"
+        self.MAIN_HELP_LINK = "https://telegra.ph/usage-05-1"
 
         self.markup_commands = ["/help", "/search", "/usage", "/settings"]
 
