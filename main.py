@@ -703,7 +703,8 @@ class PlabBot:
             if data.get("save") is not None and str(data.get("save")).lower().strip().startswith("true"):
                 return_dict["save"] = True
 
-            print(search_request)
+            #print(search_request)
+            self.bot.send_message(self.ADMIN_ID, str(search_request))
             return_dict["isvalid"] = True
         except Exception as e:
             self.logger.warning("Create_search_request() Error in create search request:")
