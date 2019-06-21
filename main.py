@@ -9,10 +9,14 @@
 # +история поиска, +фикс количество файлов
 # version 1.33 2019-06-21
 # управление фильтрами и path
+# version 1.34 2019-06-21
+# поиск по произвольному тексту
+# настройки, описание
 
 # TODO
 # "/subscribe", "/lucky"
 # ограничения на поиск
+# отдавать ссылки без файла
 
 import os
 import telebot
@@ -25,7 +29,7 @@ import math
 #import config
 from logging.handlers import RotatingFileHandler
 
-VERSION = "1.33"
+VERSION = "1.34"
 
 class PlabBot:
 
@@ -93,7 +97,7 @@ class PlabBot:
         self.GLOBAL_RECONNECT_INTERVAL = 5
         self.RECONNECT_ERRORS = []
         self.ADMIN_ID = '211558'
-        self.MAIN_HELP_LINK = "https://telegra.ph/usage-05-10"
+        self.MAIN_HELP_LINK = "https://telegra.ph/Bot-dlya-poiska-po-pornolabnet-06-21"
 
         self.markup_commands = ["/help", "/search", "/usage", "/settings"]
 
@@ -213,7 +217,7 @@ class PlabBot:
             user_name = message.from_user.first_name
 
         if self.new_user(message.chat.id, user_name):
-            self.bot.send_message(message.chat.id, "Your are in. tap /help",
+            self.bot.send_message(message.chat.id, "Your are in. tap /help and check your /settings",
                                   reply_markup=self.markup_keyboard(self.markup_commands))
             self.bot.send_message(self.ADMIN_ID, "New user: " + str(user_name))
         else:
@@ -256,36 +260,24 @@ class PlabBot:
         try:
             self.logger.info("Receive Usage command from chat ID:" + str(message.chat.id))
             self.db_execute("update plab_bot_users set state = %s where user_id = %s", ("", message.chat.id),"Update State")
-            self.bot.send_message(message.chat.id, "*Usage*:\n"
-                                                   "1. Go to one of supported sites, make search with your own filters and options\n"
-                                                   "2. Sort mode must be *\"newest first\"* or the same\n"
-                                                   "3. Copy URL from address line in brouser\n"
-                                                   "4. Go to bot and tap /add command\n"
-                                                   "5. Paste URL. Wait \"Done\" message\n"
-                                                   "6. Thats it! New ads will come to this chat\n"
+            self.bot.send_message(message.chat.id, "*Filters*:\n"
+                                                   "tags: +<tag>, -<tag>\n"
+                                                   "site: +<site>, -<site>\n"
+                                                   "title: +<word(s)>, -<word(s)>\n"
+                                                   "year, month, day: +<int>, -<int>\n"
+                                                   "forum, subforum: +<word(s)>, -<word(s)>\n"
+                                                   "limit: <int>\n"
+                                                   "qa: min/max\n"
+                                                   "history: true/false\n"
+                                                   "save: true/false\n"
                                                    "\n"
-                                                   "*Support sites*:\n"
-                                                   "ebay.com\n"
-                                                   "avito.ru\n"
-                                                   "youla.ru \n"
-                                                   "music.yandex.ru\n"
-                                                   "realty.yandex.ru\n"
-                                                   "sob.ru\n"
-                                                   "kvartirant.ru\n"
-                                                   "thelocals.ru\n"
-                                                   "kvadroom.ru\n"
-                                                   
-                                                           # possible values:
-        # tags: +<tag>, -<tag>
-        # site: +<site>, -<site>
-        # title: +<word(s)>, -<word(s)>
-        # year, month, day: +<int>, -<int>
-        # forum, subforum: +<word(s)>, -<word(s)>
-        # limit: <int>
-        # qa: min/max
-        # history: any
-        # save: any
-                                                   
+                                                   "*Examples:*\n"
+                                                   "tags: +teen,+solo,-big tits\n"
+                                                   "site: +wowporn\n"
+                                                   "\n"
+                                                   "title: sasha grey\n"
+                                                   "year: +2019, +2018\n"
+                                                   "limit: 100\n"
                                                    "\n", parse_mode='Markdown', reply_markup=self.markup_keyboard(self.markup_commands))
         except Exception as e:
             self.logger.critical("Cant execute Usage command. " + str(e))
@@ -324,7 +316,7 @@ class PlabBot:
         inlinekeyboard.add(*[telebot.types.InlineKeyboardButton(text=name, callback_data=name) for name in list])
         return inlinekeyboard
 
-    def command_search(self, message):
+    def command_search(self, message, raw_search = False):
         try:
             self.logger.info("Receive Search command from user id:" + str(message.chat.id))
             # достаем данные пользователя
@@ -341,7 +333,7 @@ class PlabBot:
                 return
 
             # парсим сообщение и строим запрос
-            search_data = self.create_search_request(message.text, str(message.chat.id),user_max_limit=user_max_limit,fixed_filters=user_filters)
+            search_data = self.create_search_request(message.text, str(message.chat.id),user_max_limit=user_max_limit,fixed_filters=user_filters,raw_search=raw_search)
             if search_data["isvalid"]:
                 # выполняем запрос
                 urls = self.db_query(search_data["search_request"].replace("%s","%\\s"),(), "Searching for urls")
@@ -357,7 +349,7 @@ class PlabBot:
                 return True
 
             # формируем файлы
-            file_names = self.create_out_files(urls, user_search_id, browser_path=user_browser_path)
+            file_names = self.create_out_files(urls, str(message.chat.id) + "_" + str(user_search_id), browser_path=user_browser_path)
 
             # отправляем файлы
             for file_name in file_names:
@@ -503,9 +495,16 @@ class PlabBot:
                     self.db_execute("update plab_bot_users set state = %s where user_id = %s",("", message.chat.id), "Update State")
                     return
 
-                # Если ничего не сработало
-                # print(message)
+                # Если ничего не сработало, считаем что юзер вставил запрос поиска без команды
+                # сначала проверим на форматный запрос
+                if message.text.find(":") > 0:
+                    if self.command_search(message):
+                        return
+                # не формат. поиск по raw_title
+                if self.command_search(message, raw_search=True):
+                        return
 
+                # print(message)
                 self.bot.reply_to(message, text="Tap command", reply_markup=self.markup_keyboard(self.markup_commands),
                                   parse_mode='Markdown')
             except Exception as e:
@@ -544,7 +543,7 @@ class PlabBot:
     def parse_values(self, str_):
         return str_.split(",")
 
-    def create_search_request(self, search_, user_id, user_max_limit = 1000, fixed_filters = ""):
+    def create_search_request(self, search_, user_id, user_max_limit = 1000, fixed_filters = "", raw_search = False):
         data = {}
         fixed_filters_dict = {}
         return_dict = {}
@@ -579,16 +578,19 @@ class PlabBot:
             return return_dict
 
         # парсим всю кучу
-        try:
-            # разбиваем текст на словарь
-            for line in search_.lower().split("\n"):
-                key = line[0:line.find(":")].strip()
-                value = line[line.find(":") + 1:].strip()
-                if len(key) > 0: data[key] = value
-        except Exception as e:
-            self.logger.warning("Create_search_request() Error on parsing main search:" + str(e))
-            return_dict["error_message"] = str(e)
-            return return_dict
+        if not raw_search:
+            try:
+                # разбиваем текст на словарь
+                for line in search_.lower().split("\n"):
+                    key = line[0:line.find(":")].strip()
+                    value = line[line.find(":") + 1:].strip()
+                    if len(key) > 0: data[key] = value
+            except Exception as e:
+                self.logger.warning("Create_search_request() Error on parsing main search:" + str(e))
+                return_dict["error_message"] = str(e)
+                return return_dict
+        else:
+            data["raw_title"] = search_.replace("\n"," ")
 
         try:
             # основной запрос
@@ -598,7 +600,7 @@ class PlabBot:
             where_condition = " where parse_ok = '1' AND "
             for key in data:
                 # для строковых и неуникальных полей
-                if key in ['tags','title','forum','site','subforum']:
+                if key in ['tags','title','forum','site','subforum','raw_title']:
                     for item in self.parse_values(data[key]):
                         if item.strip().startswith("-"):
                             value_ = item.strip()[1:]
@@ -687,16 +689,16 @@ class PlabBot:
 
         return return_dict
 
-    def create_out_files(self, urls, search_id, browser_path = "", num_url_per_file = 100):
+    def create_out_files(self, urls, search_id_str, browser_path = "", num_url_per_file = 50):
         file_names = []
         try:
             files_count = int(math.ceil(len(urls) / num_url_per_file))
             last_file_id = 1
             current_file_id = 1
             url_index = 1
-            file_names.append(self.TMP_PATH + "plab_search_" + str(search_id) + "_part_" + str(current_file_id) + "_of_" + str(files_count) + ".bat")
+            file_names.append(self.TMP_PATH + "plab_search_" + search_id_str + "_part_" + str(current_file_id) + "_of_" + str(files_count) + ".bat")
             for url in urls:
-                out_filename = "plab_search_" + str(search_id) + "_part_" + str(current_file_id) + "_of_" + str(files_count) + ".bat"
+                out_filename = "plab_search_" + search_id_str + "_part_" + str(current_file_id) + "_of_" + str(files_count) + ".bat"
                 out_file = open(self.TMP_PATH + out_filename, mode='a')
                 out_file.write(browser_path + " " + str(url[0]) + "\n")
                 if current_file_id != last_file_id:
