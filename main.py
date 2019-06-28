@@ -12,7 +12,10 @@
 # version 1.34 2019-06-21
 # поиск по произвольному тексту
 # настройки, описание
-
+# version 1.35 2019-06-28
+# new connection pool
+# bugs with search command
+#
 # TODO
 # "/subscribe", "/lucky"
 # ограничения на поиск
@@ -22,14 +25,17 @@ import os
 import telebot
 from flask import Flask, request
 import mysql.connector
+from mysql.connector import Error
+from mysql.connector.connection import MySQLConnection
+from mysql.connector import pooling
 import logging
 import time
 import sys
 import math
-#import config
+import config
 from logging.handlers import RotatingFileHandler
 
-VERSION = "1.34"
+VERSION = "1.35"
 
 class PlabBot:
 
@@ -107,10 +113,30 @@ class PlabBot:
         # привязываем хенделр колбеков inline-клавиатуры к боту:
         self.bot.add_callback_query_handler(handler_dic)
 
-        if mode != 'offline':
-            if not self.mysql_reconnect():
-                self.logger.critical("no database connection. Exit.")
-                quit()
+        try:
+            self.connection_pool = mysql.connector.pooling.MySQLConnectionPool(pool_name="my_pool",
+                                                                          pool_size=32,
+                                                                          pool_reset_session=True,
+                                                                          host=self.DB_HOST,
+                                                                          database=self.DB_DATABASE,
+                                                                          user=self.DB_USER,
+                                                                          password=self.DB_PASSWORD)
+
+            connection_object = self.connection_pool.get_connection()
+
+            if connection_object.is_connected():
+                db_Info = connection_object.get_server_info()
+                cursor = connection_object.cursor()
+                cursor.execute("select database();")
+                record = cursor.fetchone()
+
+        except Error as e:
+            self.logger.critical("Error while connecting to MySQL using Connection pool ", e)
+        finally:
+            # closing database connection.
+            if (connection_object.is_connected()):
+                cursor.close()
+                connection_object.close()
 
     def process_updates(self):
         self.bot.process_new_updates([telebot.types.Update.de_json(request.stream.read().decode("utf-8"))])
@@ -121,73 +147,52 @@ class PlabBot:
         self.bot.set_webhook(url=self.BASE_URL + self.TELEBOT_URL + self.TG_BOT_TOKEN)
         return "!", 200
 
-    def mysql_reconnect(self):
-        while self.reconnect_count > 0:
-            try:
-                self.logger.info("Try reconnect...")
-                self.reconnect_count = self.reconnect_count - 1
-
-                self.connection_main = mysql.connector.connect(user=self.DB_USER, password=self.DB_PASSWORD,
-                                                               host=self.DB_HOST, port=self.DB_PORT,
-                                                               database=self.DB_DATABASE)
-                self.connection_main.autocommit = True
-                self.connection_main.reconnect(attempts=3,delay=2)
-
-                self.cursor_m = self.connection_main.cursor(buffered=True)
-                self.logger.info("Reconnect successful " + str(self.connection_main.is_connected()))
-                self.reconnect_count = self.GLOBAL_RECONNECT_COUNT
-                return True
-            except Exception as e:
-                self.logger.warning("no database connection. try again" + str(e))
-                time.sleep(self.GLOBAL_RECONNECT_INTERVAL)
-        self.logger.critical("no database connection. Exit.")
-        return False
-
     # method for inserts|updates|deletes
     def db_execute(self, query, params, comment=""):
+        error_code = 1
         try:
-            for result_ in self.cursor_m.execute(query, params, multi=True):
-                pass
-        except Exception as err:
-            self.logger.warning("Cant " + comment + ". Error: " + str(err))
-            if self.mysql_reconnect():
-                return self.db_execute(query, params, comment)
-            else:
-                self.logger.critical("Cant " + comment)
-                return False
+            self.logger.debug("db_execute() " + comment)
+            connection_local = self.connection_pool.get_connection()
+            if connection_local.is_connected():
+                cursor_local = connection_local.cursor()
+                result = cursor_local.execute(query, params)
+                connection_local.commit()
+                error_code = 0
+        except mysql.connector.Error as error:
+            connection_local.rollback()  # rollback if any exception occured
+            print("Failed {}".format(error))
+        finally:
+            # closing database connection.
+            if (connection_local.is_connected()):
+                cursor_local.close()
+                connection_local.close()
+        if error_code == 0:
+            return True
         else:
-            try:
-                self.connection_main.commit()
-                return True
-            except Exception as e:
-                self.logger.critical("Cant commit transaction " + comment + ". " + str(e))
-        return False
+            return False
 
     # method for selects
     def db_query(self, query, params, comment=""):
         try:
             self.logger.debug("db_query() " + comment)
-            for result_ in self.cursor_m.execute(query, params, multi=True):
-                pass
-            try:
-                result_set = self.cursor_m.fetchall()
+            connection_local = self.connection_pool.get_connection()
+            if connection_local.is_connected():
+                cursor_local = connection_local.cursor()
+                cursor_local.execute(query, params)
+                result_set = cursor_local.fetchall()
+
                 self.logger.debug("db_query().result_set:" + str(result_set))
                 if result_set is None or len(result_set) <= 0:
                     result_set = []
-                return result_set
-            except Exception as erro:
-                self.logger.warning("Cant " + comment + ". Error0: " + str(erro))
-                result_set = []
-        except Exception as err:
-            self.logger.warning("Cant " + comment + ". Error: " + str(err))
-            if self.mysql_reconnect():
-                return self.db_query(query, params, comment)
-            else:
-                self.logger.critical("Cant " + comment)
-                return []
-        # except Exception as e:
-        #    self.logger.critical("Cant "  + comment + ". " + str(e))
-        return []
+                cursor_local.close()
+        except mysql.connector.Error as error:
+            print("Failed {}".format(error))
+            result_set = []
+        finally:
+            # closing database connection.
+            if (connection_local.is_connected()):
+                connection_local.close()
+        return result_set
 
     def run(self):
         if self.env == 'heroku':
@@ -335,6 +340,16 @@ class PlabBot:
             # парсим сообщение и строим запрос
             search_data = self.create_search_request(message.text, str(message.chat.id),user_max_limit=user_max_limit,fixed_filters=user_filters,raw_search=raw_search)
             if search_data["isvalid"]:
+                # запоминаем сам запрос и обновляем last_search_id
+                try:
+                    global_search_id = str(message.chat.id) + "_" + str(user_search_id)
+                    self.db_execute("update plab_bot_users set last_search_id = %s where user_id = %s", (user_search_id, message.chat.id), "Update search_id")
+                    self.db_execute("insert into plab_bot_history (user_id, global_search_id, serach_request)  values (%s,%s,%s)", (message.chat.id, global_search_id, search_data["search_request"]), "Insert new search")
+
+                except Exception as e:
+                    self.logger.warning("Command Search() Could not save search for user:" + str(message.chat.id) + "; E:" + str(e))
+                    return False
+
                 # выполняем запрос
                 urls = self.db_query(search_data["search_request"].replace("%s","%\\s"),(), "Searching for urls")
                 self.logger.debug("Command Search() Found " + str(len(urls)) + " urls")
@@ -355,27 +370,18 @@ class PlabBot:
             for file_name in file_names:
                 doc = open(file_name, 'rb')
                 self.bot.send_document(message.chat.id, doc, reply_markup=self.markup_keyboard(self.markup_commands))
-
+                doc.close()
             self.logger.info("Command Search() Sent " + str(len(urls)) + " urls in " + str(len(file_names)) + " files to user:" + str(message.chat.id) + "; search id: " + str(user_search_id))
 
-            # запоминаем сам запрос и обновляем last_search_id
-            try:
-                global_search_id = str(message.chat.id) + "_" + str(user_search_id)
-                self.db_execute("update plab_bot_users set last_search_id = %s where user_id = %s", (user_search_id, message.chat.id), "Update search_id")
-                self.db_execute("insert into plab_bot_history (user_id, global_search_id, serach_request)  values (%s,%s,%s)", (message.chat.id,global_search_id,search_data["search_request"]), "Insert new search")
-
-                # запоминаем историю поиска
-                if search_data.get("save") is not None:
-                    try:
-                        for url in urls:
-                            url_id = int(url[0][url[0].rfind("=") + 1:])
-                            self.db_execute("insert into plab_bot_history_detailed (global_search_id, url_id) values (%s,%s)",(global_search_id, url_id), "Save search details")
-                    except Exception as e:
-                        self.logger.warning("Command Search() Cant save search history for user: " + str(message.chat.id) + "; " + str(e))
-                        pass
-            except Exception as e:
-                self.logger.warning("Command Search() Could not save search for user:" + str(message.chat.id) + "; E:" + str(e))
-                pass
+            # запоминаем историю поиска
+            if search_data.get("save") is not None:
+                try:
+                    for url in urls:
+                        url_id = int(url[0][url[0].rfind("=") + 1:])
+                        self.db_execute("insert into plab_bot_history_detailed (global_search_id, url_id) values (%s,%s)",(global_search_id, url_id), "Save search details")
+                except Exception as e:
+                    self.logger.warning("Command Search() Cant save search history for user: " + str(message.chat.id) + "; " + str(e))
+                    pass
 
             # удяляем файлы
             try:
@@ -663,7 +669,7 @@ class PlabBot:
 
             # условие на проверку истории поиска
             search_history = ""
-            if data.get("history") is not None:
+            if data.get("history") is not None and not str(data.get("history")).lower().strip().startswith("false"):
                 # кусок запроса на исключение просмотренных данных из поиска
                 search_history = "AND url_id not in (select url_id from plab_bot_history_detailed \
                 inner join plab_bot_history on plab_bot_history.global_search_id = plab_bot_history_detailed.global_search_id \
