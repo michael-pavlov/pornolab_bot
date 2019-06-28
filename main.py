@@ -117,7 +117,7 @@ class PlabBot:
             self.connection_pool = mysql.connector.pooling.MySQLConnectionPool(pool_name="my_pool",
                                                                           pool_size=32,
                                                                           pool_reset_session=True,
-                                                                          host=self.DB_HOST,
+                                                                          host=self.DB_HOST, port=self.DB_PORT,
                                                                           database=self.DB_DATABASE,
                                                                           user=self.DB_USER,
                                                                           password=self.DB_PASSWORD)
