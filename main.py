@@ -15,7 +15,9 @@
 # version 1.35 2019-06-28
 # new connection pool
 # bugs with search command
-#
+# version 1.36 2019-07-03
+# donate, description
+
 # TODO
 # "/subscribe", "/lucky"
 # ограничения на поиск
@@ -32,10 +34,10 @@ import logging
 import time
 import sys
 import math
-#import config
+import config
 from logging.handlers import RotatingFileHandler
 
-VERSION = "1.35"
+VERSION = "1.36"
 
 class PlabBot:
 
@@ -105,7 +107,7 @@ class PlabBot:
         self.ADMIN_ID = '211558'
         self.MAIN_HELP_LINK = "https://telegra.ph/Bot-dlya-poiska-po-pornolabnet-06-21"
 
-        self.markup_commands = ["/help", "/search", "/usage", "/settings"]
+        self.markup_commands = ["/help", "/search", "/usage", "/settings", "/donate"]
 
         # привязываем хенделер сообщений к боту:
         self.bot.set_update_listener(self.handle_messages)
@@ -222,7 +224,15 @@ class PlabBot:
             user_name = message.from_user.first_name
 
         if self.new_user(message.chat.id, user_name):
-            self.bot.send_message(message.chat.id, "Your are in. tap /help and check your /settings",
+            self.bot.send_message(message.chat.id,  "Welcome.\n"
+                                                    "Read the manual first: " + self.MAIN_HELP_LINK + "\n"
+                                                    "It is non commercial project, so feel free to /donate\n"
+                                                    "Support, bugs, offer feature - @m_m_pa\n"
+                                                    "\n"
+                                                    "Добро пожаловать.\n"
+                                                    "Сначала прочитайте инструкцию: " + self.MAIN_HELP_LINK + "\n"
+                                                    "Поддержите этот некоммерческий проект /donate\n"
+                                                    "Вопросы, баги, предложения - @m_m_pa\n",
                                   reply_markup=self.markup_keyboard(self.markup_commands))
             self.bot.send_message(self.ADMIN_ID, "New user: " + str(user_name))
         else:
@@ -259,6 +269,27 @@ class PlabBot:
                                   disable_web_page_preview=True, reply_markup=self.markup_keyboard(self.markup_commands))
         except Exception as e:
             self.logger.critical("Cant execute Help command. " + str(e))
+        return
+
+    def command_donate(self, message):
+        try:
+            self.db_execute("update plab_bot_users set state = %s where user_id = %s", ("", message.chat.id),"Update State")
+            self.logger.info("Receive Donate command from chat ID:" + str(message.chat.id))
+            self.bot.send_message(message.chat.id, "*Donate project*:\n"
+                                                   "PayPal: https://paypal.me/mrmichaelpavlov\n"
+                                                   "VK pay: https://vk.me/moneysend/to/23QW\n"
+                                                   "Mastercard: 5321 3046 4588 4500\n"
+                                                   "ETH: 0x6dD6E739891D15A3dcEFF9587dECC780a3809246\n"
+                                                   "BTC: 1FzUWXtViv1MtvyrgcPGSmwnusHAaUXxLM\n"
+                                                   # "\n"
+            # "/... - ...\n"
+            #                                        "readme(ru) - " + self.MAIN_HELP_LINK + "\n"
+            #                                        "support - @m_m_pa\n\n"
+            #                                        "version - " + VERSION + "\n"
+                                                   "\n",
+                                  disable_web_page_preview=True, parse_mode='Markdown',reply_markup=self.markup_keyboard(self.markup_commands))
+        except Exception as e:
+            self.logger.critical("Cant execute Donate command. " + str(e))
         return
 
     def command_usage(self, message):
@@ -425,6 +456,9 @@ class PlabBot:
                     return
                 if message.text.startswith("/help"):
                     self.command_help(message)
+                    return
+                if message.text.startswith("/donate"):
+                    self.command_donate(message)
                     return
                 if message.text.startswith("/usage"):
                     self.command_usage(message)
